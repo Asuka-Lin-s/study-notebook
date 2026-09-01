@@ -36,6 +36,28 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller==6.11.1
 
+      - name: Startup smoke test
+        shell: powershell
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          @'
+          import sys
+          from PySide6.QtWidgets import QApplication
+          import app as app_module
+
+          qt_app = QApplication([])
+          window = app_module.MainWindow()
+          window.tree_drop_watcher = app_module.TreeDropWatcher(window)
+          window.note_list.viewport().installEventFilter(window.tree_drop_watcher)
+          window.show()
+          qt_app.processEvents()
+          print("STARTUP_SMOKE_TEST_OK")
+          window.close()
+          qt_app.processEvents()
+          '@ | Set-Content -Encoding UTF8 smoke_test.py
+          python smoke_test.py
+
       - name: Build EXE
         shell: cmd
         run: |
