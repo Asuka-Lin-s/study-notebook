@@ -86,7 +86,6 @@ class FormatMixin:
             level = 0
         level = max(0, min(3, level))
 
-        # 不再调用 expand_all_headings()。
         # 修改可见段落的标题等级时，现有其它折叠区域保持原样。
         original = editor.textCursor()
         blocks = self._selected_blocks(editor)
@@ -146,10 +145,8 @@ class FormatMixin:
         if not family:
             return
         fmt = QTextCharFormat()
-        try:
-            fmt.setFontFamilies([family])
-        except Exception:
-            fmt.setFontFamily(family)
+        # Qt 6 下只设置字体家族，不覆盖当前字号、颜色、粗细。
+        fmt.setFontFamilies([family])
         self._merge_character_format(fmt)
         self.status.setText("字体：" + family)
 
@@ -169,7 +166,7 @@ class FormatMixin:
         editor = self.current_editor()
         if not editor:
             return
-        current = editor.currentCharFormat().foreground().color()
+        current = editor.textColor()
         if not current.isValid():
             current = QColor(Qt.GlobalColor.black)
         color = QColorDialog.getColor(current, self, "选择文字颜色")
@@ -184,43 +181,43 @@ class FormatMixin:
     def _set_color_button_preview(self, color):
         if not hasattr(self, "text_color_btn") or not color.isValid():
             return
-        # 只用底部色条预览，按钮文字始终保持系统主题可读性。
         self.text_color_btn.setStyleSheet(
             "QPushButton { padding: 4px 8px; border-bottom: 4px solid %s; }" % color.name()
         )
 
     def sync_text_format_controls(self, *args):
+        """把光标处格式同步到工具栏。
+
+        使用 QTextEdit 的高层接口读取字体，避免 PySide6 6.6.3.1 在
+        QTextCharFormat.fontFamily()/fontFamilies() 上出现原生 access violation。
+        """
         editor = self.current_editor()
         if not editor:
             return
-        fmt = editor.currentCharFormat()
 
         if hasattr(self, "font_combo"):
-            family = fmt.fontFamily()
-            if not family:
-                try:
-                    families = fmt.fontFamilies()
-                    family = families[0] if families else ""
-                except Exception:
-                    family = ""
+            current_font = editor.currentFont()
+            family = current_font.family()
             if family:
                 self.font_combo.blockSignals(True)
                 self.font_combo.setCurrentFont(QFont(family))
                 self.font_combo.blockSignals(False)
 
         if hasattr(self, "font_size_box"):
-            size = fmt.fontPointSize()
+            size = editor.fontPointSize()
             if size <= 0:
-                size = editor.fontPointSize()
+                size = editor.currentFont().pointSizeF()
             if size <= 0:
-                size = self.HEADING_SIZES.get(
-                    max(0, min(3, editor.textCursor().blockFormat().headingLevel())), 11.0
-                )
+                try:
+                    heading_level = int(editor.textCursor().blockFormat().headingLevel())
+                except Exception:
+                    heading_level = 0
+                size = self.HEADING_SIZES.get(max(0, min(3, heading_level)), 11.0)
             self.font_size_box.blockSignals(True)
             self.font_size_box.setValue(int(round(size)))
             self.font_size_box.blockSignals(False)
 
-        color = fmt.foreground().color()
+        color = editor.textColor()
         if color.isValid():
             self._set_color_button_preview(color)
 
