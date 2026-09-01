@@ -3,7 +3,7 @@ from PySide6.QtGui import QTextCursor, QTextCharFormat, QFont
 
 
 class FormatMixin:
-    """正文段落级格式：正文 / H1 / H2 / H3。"""
+    """正文段落级格式：正文 / H1 / H2 / H3，以及标题折叠状态。"""
 
     HEADING_SIZES = {
         0: 11.0,
@@ -14,6 +14,37 @@ class FormatMixin:
 
     def attach_format_tracking(self, editor):
         editor.cursorPositionChanged.connect(self.sync_heading_combo)
+
+        # 折叠状态单独保存在索引中；正文 HTML 始终保持完整。
+        info = self.notes_index.get(editor.note_id, {})
+        editor.set_folded_heading_keys(info.get("folded_headings", []))
+        editor.fold_state_changed.connect(
+            lambda note_id=editor.note_id, e=editor: self.save_heading_fold_state(note_id, e)
+        )
+
+    def save_heading_fold_state(self, note_id, editor=None):
+        if editor is None:
+            editor = self.open_editors.get(note_id)
+        if not editor or note_id not in self.notes_index:
+            return
+        self.notes_index[note_id]["folded_headings"] = editor.folded_heading_keys_list()
+        self.save_index()
+
+    def toggle_current_heading_fold(self):
+        editor = self.current_editor()
+        if not editor:
+            return
+        if editor.toggle_current_heading_fold():
+            self.status.setText("已切换当前标题折叠状态")
+        else:
+            self.status.setText("当前位置没有可折叠标题")
+
+    def expand_all_headings(self):
+        editor = self.current_editor()
+        if not editor:
+            return
+        editor.expand_all_headings()
+        self.status.setText("已展开当前笔记全部标题")
 
     def _selected_blocks(self, editor):
         cursor = editor.textCursor()
@@ -42,6 +73,9 @@ class FormatMixin:
         except Exception:
             level = 0
         level = max(0, min(3, level))
+
+        # 修改标题结构前先展开，避免正在编辑隐藏块产生不可预期的位置关系。
+        editor.expand_all_headings()
 
         original = editor.textCursor()
         blocks = self._selected_blocks(editor)
