@@ -31,15 +31,15 @@ jobs:
           python -m pip install pyinstaller==6.11.1
 
       - name: Build EXE
-        shell: powershell
+        shell: cmd
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name "学习笔记" app.py
-          Get-ChildItem dist
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name StudyNotebook app.py
+          dir dist
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
           name: StudyNotebook-Windows-x64
-          path: dist/学习笔记.exe
+          path: dist/StudyNotebook.exe
           if-no-files-found: error
           retention-days: 30
