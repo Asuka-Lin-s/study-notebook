@@ -106,6 +106,8 @@ class SearchMixin:
 
     def _focus_search_match(self, editor, note_id, idx, positions):
         start, end = positions[idx]
+        # 命中隐藏区时先展开对应上级标题，再滚动定位。
+        editor.expand_for_position(start)
         cursor = QTextCursor(editor.document())
         cursor.setPosition(start)
         cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
