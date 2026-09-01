@@ -5,7 +5,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSizeGrip, QTreeWidget, QSplitter, QTabWidget, QComboBox,
-    QAbstractItemView
+    QAbstractItemView, QFontComboBox, QSpinBox
 )
 from config import DISPLAY_NAME
 from widgets import TitleBar, SearchLineEdit
@@ -126,21 +126,43 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, FormatM
         editor_layout.setSpacing(0)
 
         format_bar = QWidget()
-        format_bar.setFixedHeight(38)
+        format_bar.setFixedHeight(42)
         format_bar.setStyleSheet("""
             QWidget { background: #f3f3f3; border-bottom: 1px solid #dddddd; }
-            QComboBox { min-width: 125px; padding: 4px 8px; }
+            QComboBox, QFontComboBox, QSpinBox { padding: 4px 6px; }
             QPushButton { padding: 4px 8px; }
             QLabel { color: #555; }
         """)
         format_layout = QHBoxLayout(format_bar)
-        format_layout.setContentsMargins(10, 4, 10, 4)
-        format_layout.setSpacing(6)
+        format_layout.setContentsMargins(8, 4, 8, 4)
+        format_layout.setSpacing(5)
+
         format_layout.addWidget(QLabel("段落"))
         self.heading_combo = QComboBox()
         self.heading_combo.addItems(["正文", "H1 一级标题", "H2 二级标题", "H3 三级标题"])
         self.heading_combo.setToolTip("Ctrl+0 正文 / Ctrl+1~3 标题")
+        self.heading_combo.setMinimumWidth(110)
         format_layout.addWidget(self.heading_combo)
+
+        format_layout.addWidget(QLabel("字体"))
+        self.font_combo = QFontComboBox()
+        self.font_combo.setMinimumWidth(135)
+        self.font_combo.setMaximumWidth(190)
+        self.font_combo.setToolTip("修改选中文字的字体；没有选区时修改后续输入字体")
+        format_layout.addWidget(self.font_combo)
+
+        self.font_size_box = QSpinBox()
+        self.font_size_box.setRange(6, 96)
+        self.font_size_box.setValue(11)
+        self.font_size_box.setSuffix(" pt")
+        self.font_size_box.setFixedWidth(72)
+        self.font_size_box.setToolTip("文字字号")
+        format_layout.addWidget(self.font_size_box)
+
+        self.text_color_btn = QPushButton("颜色")
+        self.text_color_btn.setToolTip("修改文字颜色")
+        self.text_color_btn.setFixedWidth(58)
+        format_layout.addWidget(self.text_color_btn)
 
         self.fold_btn = QPushButton("折叠/展开")
         self.fold_btn.setToolTip("折叠或展开当前标题  Ctrl+Alt+[")
@@ -149,7 +171,6 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, FormatM
         format_layout.addWidget(self.fold_btn)
         format_layout.addWidget(self.expand_all_btn)
         format_layout.addStretch()
-        format_layout.addWidget(QLabel("Ctrl+0~3"))
         editor_layout.addWidget(format_bar)
 
         self.tabs = QTabWidget()
@@ -203,7 +224,12 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, FormatM
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.sync_list_selection_to_tab)
         self.tabs.currentChanged.connect(self.sync_heading_combo)
+        self.tabs.currentChanged.connect(self.sync_text_format_controls)
+
         self.heading_combo.activated.connect(self.apply_heading_level)
+        self.font_combo.currentFontChanged.connect(self.apply_font_family)
+        self.font_size_box.valueChanged.connect(self.apply_font_size)
+        self.text_color_btn.clicked.connect(self.choose_text_color)
         self.fold_btn.clicked.connect(self.toggle_current_heading_fold)
         self.expand_all_btn.clicked.connect(self.expand_all_headings)
 
