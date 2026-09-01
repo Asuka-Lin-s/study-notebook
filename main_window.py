@@ -130,6 +130,7 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, FormatM
         format_bar.setStyleSheet("""
             QWidget { background: #f3f3f3; border-bottom: 1px solid #dddddd; }
             QComboBox { min-width: 125px; padding: 4px 8px; }
+            QPushButton { padding: 4px 8px; }
             QLabel { color: #555; }
         """)
         format_layout = QHBoxLayout(format_bar)
@@ -140,6 +141,13 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, FormatM
         self.heading_combo.addItems(["正文", "H1 一级标题", "H2 二级标题", "H3 三级标题"])
         self.heading_combo.setToolTip("Ctrl+0 正文 / Ctrl+1~3 标题")
         format_layout.addWidget(self.heading_combo)
+
+        self.fold_btn = QPushButton("折叠/展开")
+        self.fold_btn.setToolTip("折叠或展开当前标题  Ctrl+Alt+[")
+        self.expand_all_btn = QPushButton("全部展开")
+        self.expand_all_btn.setToolTip("展开当前笔记全部标题  Ctrl+Alt+]")
+        format_layout.addWidget(self.fold_btn)
+        format_layout.addWidget(self.expand_all_btn)
         format_layout.addStretch()
         format_layout.addWidget(QLabel("Ctrl+0~3"))
         editor_layout.addWidget(format_bar)
@@ -196,6 +204,8 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, FormatM
         self.tabs.currentChanged.connect(self.sync_list_selection_to_tab)
         self.tabs.currentChanged.connect(self.sync_heading_combo)
         self.heading_combo.activated.connect(self.apply_heading_level)
+        self.fold_btn.clicked.connect(self.toggle_current_heading_fold)
+        self.expand_all_btn.clicked.connect(self.expand_all_headings)
 
         self._last_sidebar_width = 255
         self.create_resize_handles()
@@ -251,6 +261,16 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, FormatM
         prev_search_action.setShortcut(QKeySequence("Shift+F3"))
         prev_search_action.triggered.connect(self.search_previous_match)
         self.addAction(prev_search_action)
+
+        fold_action = QAction(self)
+        fold_action.setShortcut(QKeySequence("Ctrl+Alt+["))
+        fold_action.triggered.connect(self.toggle_current_heading_fold)
+        self.addAction(fold_action)
+
+        expand_action = QAction(self)
+        expand_action.setShortcut(QKeySequence("Ctrl+Alt+]"))
+        expand_action.triggered.connect(self.expand_all_headings)
+        self.addAction(expand_action)
 
         for level in range(4):
             action = QAction(self)
