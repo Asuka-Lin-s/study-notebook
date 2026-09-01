@@ -9,6 +9,7 @@ import text_style_fix  # noqa: F401  标题回车后恢复正文样式
 import floating_format_fix  # noqa: F401  正文格式栏可停靠/悬浮/隐藏
 import fold_identity_fix  # noqa: F401  修改标题文字时保持折叠状态
 import category_export_fix  # noqa: F401  按目录最高级分类合并导出
+import import_fix  # noqa: F401  导入 HTML/TXT 笔记
 
 
 class TreeDropWatcher(QObject):
