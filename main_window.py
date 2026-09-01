@@ -2,15 +2,21 @@
 import time
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSizeGrip, QListWidget, QSplitter, QTabWidget
+from PySide6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QSizeGrip, QTreeWidget, QSplitter, QTabWidget, QComboBox,
+    QAbstractItemView
+)
 from config import DISPLAY_NAME
 from widgets import TitleBar, SearchLineEdit
 from mixin_search import SearchMixin
 from mixin_notes import NotesMixin
 from mixin_save import SaveCaptureMixin
 from mixin_window import WindowMixin
+from mixin_format import FormatMixin
 
-class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, QMainWindow):
+
+class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, FormatMixin, QMainWindow):
     SNAP_DISTANCE = 22
     HIDDEN_STRIP = 7
 
@@ -24,6 +30,7 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, QMainWi
         self.open_editors = {}
         self.search_positions = {}
         self.search_indices = {}
+        self.tree_items = {}
 
         self.setWindowTitle(DISPLAY_NAME)
         self.setMinimumSize(430, 300)
@@ -52,53 +59,60 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, QMainWi
 
         self.sidebar = QWidget()
         self.sidebar.setMinimumWidth(210)
-        self.sidebar.setMaximumWidth(340)
+        self.sidebar.setMaximumWidth(380)
         sidebar_layout = QVBoxLayout(self.sidebar)
         sidebar_layout.setContentsMargins(8, 8, 8, 8)
         sidebar_layout.setSpacing(6)
 
         search_row = QHBoxLayout()
         search_row.setSpacing(4)
-
         self.search_box = SearchLineEdit()
         self.search_box.setPlaceholderText("搜索标题或正文…")
         self.search_box.setClearButtonEnabled(True)
-
         self.search_prev_btn = QPushButton("↑")
         self.search_prev_btn.setFixedWidth(34)
         self.search_prev_btn.setToolTip("上一个匹配  Shift+Enter / Shift+F3")
-
         self.search_next_btn = QPushButton("↓")
         self.search_next_btn.setFixedWidth(34)
         self.search_next_btn.setToolTip("下一个匹配  Enter / F3")
-
         search_row.addWidget(self.search_box, 1)
         search_row.addWidget(self.search_prev_btn)
         search_row.addWidget(self.search_next_btn)
         sidebar_layout.addLayout(search_row)
 
-        tools = QHBoxLayout()
-        self.sidebar_new_btn = QPushButton("+ 新建")
+        create_row = QHBoxLayout()
+        self.sidebar_new_btn = QPushButton("+ 笔记")
+        self.folder_btn = QPushButton("+ 文件夹")
+        create_row.addWidget(self.sidebar_new_btn)
+        create_row.addWidget(self.folder_btn)
+        sidebar_layout.addLayout(create_row)
+
+        manage_row = QHBoxLayout()
         self.rename_btn = QPushButton("重命名")
         self.delete_btn = QPushButton("删除")
-        tools.addWidget(self.sidebar_new_btn)
-        tools.addWidget(self.rename_btn)
-        tools.addWidget(self.delete_btn)
-        sidebar_layout.addLayout(tools)
+        manage_row.addWidget(self.rename_btn)
+        manage_row.addWidget(self.delete_btn)
+        sidebar_layout.addLayout(manage_row)
 
-        self.note_list = QListWidget()
+        self.note_list = QTreeWidget()
+        self.note_list.setHeaderHidden(True)
+        self.note_list.setIndentation(18)
+        self.note_list.setAnimated(True)
         self.note_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.note_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.note_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.note_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.note_list.setStyleSheet("""
-            QListWidget {
+            QTreeWidget {
                 border: 1px solid #d8d8d8;
                 background: #f7f7f7;
                 outline: none;
             }
-            QListWidget::item {
-                padding: 9px 8px;
-                border-bottom: 1px solid #ececec;
+            QTreeWidget::item {
+                min-height: 28px;
+                padding: 3px 5px;
             }
-            QListWidget::item:selected {
+            QTreeWidget::item:selected {
                 background: #dbeafe;
                 color: #111;
             }
@@ -111,6 +125,25 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, QMainWi
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
 
+        format_bar = QWidget()
+        format_bar.setFixedHeight(38)
+        format_bar.setStyleSheet("""
+            QWidget { background: #f3f3f3; border-bottom: 1px solid #dddddd; }
+            QComboBox { min-width: 125px; padding: 4px 8px; }
+            QLabel { color: #555; }
+        """)
+        format_layout = QHBoxLayout(format_bar)
+        format_layout.setContentsMargins(10, 4, 10, 4)
+        format_layout.setSpacing(6)
+        format_layout.addWidget(QLabel("段落"))
+        self.heading_combo = QComboBox()
+        self.heading_combo.addItems(["正文", "H1 一级标题", "H2 二级标题", "H3 三级标题"])
+        self.heading_combo.setToolTip("Ctrl+0 正文 / Ctrl+1~3 标题")
+        format_layout.addWidget(self.heading_combo)
+        format_layout.addStretch()
+        format_layout.addWidget(QLabel("Ctrl+0~3"))
+        editor_layout.addWidget(format_bar)
+
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
@@ -120,7 +153,7 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, QMainWi
         self.splitter.addWidget(editor_panel)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([245, 735])
+        self.splitter.setSizes([255, 725])
 
         bottom = QWidget()
         bottom.setFixedHeight(26)
@@ -146,6 +179,7 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, QMainWi
         self.edge_timer.start()
 
         self.sidebar_new_btn.clicked.connect(self.create_new_note)
+        self.folder_btn.clicked.connect(self.create_new_folder)
         self.rename_btn.clicked.connect(self.rename_selected_note)
         self.delete_btn.clicked.connect(self.delete_selected_note)
         self.search_box.textChanged.connect(self.on_search_text_changed)
@@ -153,13 +187,17 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, QMainWi
         self.search_box.search_previous.connect(self.search_previous_match)
         self.search_prev_btn.clicked.connect(self.search_previous_match)
         self.search_next_btn.clicked.connect(self.search_next_match)
-        self.note_list.itemDoubleClicked.connect(self.open_note_from_item)
         self.note_list.itemClicked.connect(self.open_note_from_item)
         self.note_list.customContextMenuRequested.connect(self.show_note_context_menu)
+        self.note_list.itemExpanded.connect(self.on_tree_item_expanded)
+        self.note_list.itemCollapsed.connect(self.on_tree_item_collapsed)
+        self.note_list.model().rowsMoved.connect(self.sync_tree_hierarchy)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.sync_list_selection_to_tab)
+        self.tabs.currentChanged.connect(self.sync_heading_combo)
+        self.heading_combo.activated.connect(self.apply_heading_level)
 
-        self._last_sidebar_width = 245
+        self._last_sidebar_width = 255
         self.create_resize_handles()
 
         self.install_shortcuts()
@@ -213,3 +251,9 @@ class MainWindow(SearchMixin, NotesMixin, SaveCaptureMixin, WindowMixin, QMainWi
         prev_search_action.setShortcut(QKeySequence("Shift+F3"))
         prev_search_action.triggered.connect(self.search_previous_match)
         self.addAction(prev_search_action)
+
+        for level in range(4):
+            action = QAction(self)
+            action.setShortcut(QKeySequence("Ctrl+%d" % level))
+            action.triggered.connect(lambda checked=False, lv=level: self.apply_heading_level(lv))
+            self.addAction(action)
