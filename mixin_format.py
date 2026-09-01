@@ -15,7 +15,6 @@ class FormatMixin:
     def attach_format_tracking(self, editor):
         editor.cursorPositionChanged.connect(self.sync_heading_combo)
 
-        # 折叠状态单独保存在索引中；正文 HTML 始终保持完整。
         info = self.notes_index.get(editor.note_id, {})
         editor.set_folded_heading_keys(info.get("folded_headings", []))
         editor.fold_state_changed.connect(
@@ -51,14 +50,26 @@ class FormatMixin:
         start = cursor.selectionStart()
         end = cursor.selectionEnd()
 
+        # 没有选区：只处理光标所在段落。
+        if not cursor.hasSelection():
+            return [cursor.block()]
+
+        # QTextDocument 中段落末尾的换行属于前一块的长度范围。
+        # 当选区结束位置正好落在下一段开头时，不应把下一段算进去。
+        end_probe = max(start, end - 1)
+
         start_cursor = QTextCursor(editor.document())
         start_cursor.setPosition(start)
         block = start_cursor.block()
 
+        end_cursor = QTextCursor(editor.document())
+        end_cursor.setPosition(end_probe)
+        end_block = end_cursor.block()
+
         blocks = []
         while block.isValid():
             blocks.append(block)
-            if block.position() + block.length() - 1 >= end:
+            if block == end_block:
                 break
             block = block.next()
         return blocks
@@ -81,10 +92,10 @@ class FormatMixin:
         blocks = self._selected_blocks(editor)
 
         for block in blocks:
-            cursor = QTextCursor(block)
-            cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
-
-            block_fmt = cursor.blockFormat()
+            # 段落级属性单独改 blockFormat；字符属性只覆盖本段文字，
+            # 不把段落分隔符带进去，防止字号/粗体传到上下相邻行。
+            block_cursor = QTextCursor(block)
+            block_fmt = block_cursor.blockFormat()
             block_fmt.setHeadingLevel(level)
             if level == 0:
                 block_fmt.setTopMargin(0)
@@ -92,17 +103,24 @@ class FormatMixin:
             else:
                 block_fmt.setTopMargin(8 if level == 1 else 5)
                 block_fmt.setBottomMargin(4)
-            cursor.mergeBlockFormat(block_fmt)
+            block_cursor.setBlockFormat(block_fmt)
+
+            text_cursor = QTextCursor(block)
+            text_cursor.setPosition(block.position())
+            text_end = block.position() + max(0, block.length() - 1)
+            text_cursor.setPosition(text_end, QTextCursor.MoveMode.KeepAnchor)
 
             char_fmt = QTextCharFormat()
             char_fmt.setFontPointSize(self.HEADING_SIZES[level])
             char_fmt.setFontWeight(
                 int(QFont.Weight.Bold if level else QFont.Weight.Normal)
             )
-            cursor.mergeCharFormat(char_fmt)
+            if text_end > block.position():
+                text_cursor.mergeCharFormat(char_fmt)
 
         editor.setTextCursor(original)
         editor.setFocus()
+        editor.apply_fold_visibility()
         self.schedule_save()
         self.sync_heading_combo()
         labels = ["正文", "H1 一级标题", "H2 二级标题", "H3 三级标题"]
