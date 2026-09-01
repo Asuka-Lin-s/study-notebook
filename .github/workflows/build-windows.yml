@@ -10,8 +10,6 @@ on:
       - 'requirements.txt'
       - '.github/workflows/build-windows.yml'
 
-# 同一分支只保留最新一次构建。
-# 如果短时间内连续提交多个改动，旧构建会自动取消。
 concurrency:
   group: study-notebook-windows-${{ github.ref }}
   cancel-in-progress: true
@@ -38,25 +36,48 @@ jobs:
 
       - name: Startup smoke test
         shell: powershell
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: |
           @'
-          import sys
-          from PySide6.QtWidgets import QApplication
-          import app as app_module
+          import faulthandler
+          import traceback
+          faulthandler.enable()
 
-          qt_app = QApplication([])
-          window = app_module.MainWindow()
-          window.tree_drop_watcher = app_module.TreeDropWatcher(window)
-          window.note_list.viewport().installEventFilter(window.tree_drop_watcher)
-          window.show()
-          qt_app.processEvents()
-          print("STARTUP_SMOKE_TEST_OK")
-          window.close()
-          qt_app.processEvents()
+          def stage(text):
+              print("SMOKE:", text, flush=True)
+
+          try:
+              stage("import QApplication")
+              from PySide6.QtWidgets import QApplication
+
+              stage("import app")
+              import app as app_module
+
+              stage("create QApplication")
+              qt_app = QApplication([])
+
+              stage("create MainWindow")
+              window = app_module.MainWindow()
+
+              stage("install tree watcher")
+              window.tree_drop_watcher = app_module.TreeDropWatcher(window)
+              window.note_list.viewport().installEventFilter(window.tree_drop_watcher)
+
+              stage("show MainWindow")
+              window.show()
+
+              stage("process events")
+              qt_app.processEvents()
+
+              stage("close MainWindow")
+              window.close()
+              qt_app.processEvents()
+
+              stage("STARTUP_SMOKE_TEST_OK")
+          except BaseException:
+              traceback.print_exc()
+              raise
           '@ | Set-Content -Encoding UTF8 smoke_test.py
-          python smoke_test.py
+          python -u -X faulthandler smoke_test.py
 
       - name: Build EXE
         shell: cmd
