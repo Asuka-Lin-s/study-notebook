@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-from PySide6.QtGui import QTextCursor, QTextCharFormat, QFont
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCursor, QTextCharFormat, QFont, QColor
+from PySide6.QtWidgets import QColorDialog
 
 
 class FormatMixin:
-    """正文段落级格式：正文 / H1 / H2 / H3，以及标题折叠状态。"""
+    """正文格式：标题层级、折叠状态、字体、字号和文字颜色。"""
 
     HEADING_SIZES = {
         0: 11.0,
@@ -14,6 +16,7 @@ class FormatMixin:
 
     def attach_format_tracking(self, editor):
         editor.cursorPositionChanged.connect(self.sync_heading_combo)
+        editor.cursorPositionChanged.connect(self.sync_text_format_controls)
 
         info = self.notes_index.get(editor.note_id, {})
         editor.set_folded_heading_keys(info.get("folded_headings", []))
@@ -50,12 +53,10 @@ class FormatMixin:
         start = cursor.selectionStart()
         end = cursor.selectionEnd()
 
-        # 没有选区：只处理光标所在段落。
         if not cursor.hasSelection():
             return [cursor.block()]
 
-        # QTextDocument 中段落末尾的换行属于前一块的长度范围。
-        # 当选区结束位置正好落在下一段开头时，不应把下一段算进去。
+        # 选区结束点如果刚好在下一段开头，不把下一段一起格式化。
         end_probe = max(start, end - 1)
 
         start_cursor = QTextCursor(editor.document())
@@ -85,15 +86,12 @@ class FormatMixin:
             level = 0
         level = max(0, min(3, level))
 
-        # 修改标题结构前先展开，避免正在编辑隐藏块产生不可预期的位置关系。
-        editor.expand_all_headings()
-
+        # 不再调用 expand_all_headings()。
+        # 修改可见段落的标题等级时，现有其它折叠区域保持原样。
         original = editor.textCursor()
         blocks = self._selected_blocks(editor)
 
         for block in blocks:
-            # 段落级属性单独改 blockFormat；字符属性只覆盖本段文字，
-            # 不把段落分隔符带进去，防止字号/粗体传到上下相邻行。
             block_cursor = QTextCursor(block)
             block_fmt = block_cursor.blockFormat()
             block_fmt.setHeadingLevel(level)
@@ -105,6 +103,7 @@ class FormatMixin:
                 block_fmt.setBottomMargin(4)
             block_cursor.setBlockFormat(block_fmt)
 
+            # 只修改当前段落的字号和粗细，不覆盖用户自己设置的字体和颜色。
             text_cursor = QTextCursor(block)
             text_cursor.setPosition(block.position())
             text_end = block.position() + max(0, block.length() - 1)
@@ -123,8 +122,107 @@ class FormatMixin:
         editor.apply_fold_visibility()
         self.schedule_save()
         self.sync_heading_combo()
+        self.sync_text_format_controls()
         labels = ["正文", "H1 一级标题", "H2 二级标题", "H3 三级标题"]
         self.status.setText("段落格式：" + labels[level])
+
+    # ---------- 字体 / 字号 / 颜色 ----------
+    def _merge_character_format(self, fmt):
+        editor = self.current_editor()
+        if not editor:
+            return
+
+        cursor = editor.textCursor()
+        if cursor.hasSelection():
+            cursor.mergeCharFormat(fmt)
+            editor.setTextCursor(cursor)
+        editor.mergeCurrentCharFormat(fmt)
+        editor.setFocus()
+        self.schedule_save()
+        self.sync_text_format_controls()
+
+    def apply_font_family(self, font):
+        family = font.family() if hasattr(font, "family") else str(font)
+        if not family:
+            return
+        fmt = QTextCharFormat()
+        try:
+            fmt.setFontFamilies([family])
+        except Exception:
+            fmt.setFontFamily(family)
+        self._merge_character_format(fmt)
+        self.status.setText("字体：" + family)
+
+    def apply_font_size(self, size):
+        try:
+            size = float(size)
+        except Exception:
+            return
+        if size <= 0:
+            return
+        fmt = QTextCharFormat()
+        fmt.setFontPointSize(size)
+        self._merge_character_format(fmt)
+        self.status.setText("字号：%g" % size)
+
+    def choose_text_color(self):
+        editor = self.current_editor()
+        if not editor:
+            return
+        current = editor.currentCharFormat().foreground().color()
+        if not current.isValid():
+            current = QColor(Qt.GlobalColor.black)
+        color = QColorDialog.getColor(current, self, "选择文字颜色")
+        if not color.isValid():
+            return
+        fmt = QTextCharFormat()
+        fmt.setForeground(color)
+        self._merge_character_format(fmt)
+        self._set_color_button_preview(color)
+        self.status.setText("文字颜色已修改")
+
+    def _set_color_button_preview(self, color):
+        if not hasattr(self, "text_color_btn") or not color.isValid():
+            return
+        # 只用底部色条预览，按钮文字始终保持系统主题可读性。
+        self.text_color_btn.setStyleSheet(
+            "QPushButton { padding: 4px 8px; border-bottom: 4px solid %s; }" % color.name()
+        )
+
+    def sync_text_format_controls(self, *args):
+        editor = self.current_editor()
+        if not editor:
+            return
+        fmt = editor.currentCharFormat()
+
+        if hasattr(self, "font_combo"):
+            family = fmt.fontFamily()
+            if not family:
+                try:
+                    families = fmt.fontFamilies()
+                    family = families[0] if families else ""
+                except Exception:
+                    family = ""
+            if family:
+                self.font_combo.blockSignals(True)
+                self.font_combo.setCurrentFont(QFont(family))
+                self.font_combo.blockSignals(False)
+
+        if hasattr(self, "font_size_box"):
+            size = fmt.fontPointSize()
+            if size <= 0:
+                size = editor.fontPointSize()
+            if size <= 0:
+                size = self.HEADING_SIZES.get(
+                    max(0, min(3, editor.textCursor().blockFormat().headingLevel())), 11.0
+                )
+            self.font_size_box.blockSignals(True)
+            self.font_size_box.setValue(int(round(size)))
+            self.font_size_box.blockSignals(False)
+
+        color = fmt.foreground().color()
+        if color.isValid():
+            self._set_color_button_preview(color)
 
     def sync_heading_combo(self, *args):
         if not hasattr(self, "heading_combo"):
