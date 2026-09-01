@@ -6,7 +6,7 @@ from config import DISPLAY_NAME
 from main_window import MainWindow
 import fold_fix  # noqa: F401  启动时安装正文嵌套折叠补丁
 import text_style_fix  # noqa: F401  标题回车后恢复正文样式
-import responsive_format_fix  # noqa: F401  顶部格式栏随窗口宽度自动换行
+import floating_format_fix  # noqa: F401  正文格式栏可停靠/悬浮/隐藏
 
 
 class TreeDropWatcher(QObject):
