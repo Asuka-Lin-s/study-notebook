@@ -7,6 +7,7 @@ from main_window import MainWindow
 import fold_fix  # noqa: F401  启动时安装正文嵌套折叠补丁
 import text_style_fix  # noqa: F401  标题回车后恢复正文样式
 import floating_format_fix  # noqa: F401  正文格式栏可停靠/悬浮/隐藏
+import fold_identity_fix  # noqa: F401  修改标题文字时保持折叠状态
 
 
 class TreeDropWatcher(QObject):
