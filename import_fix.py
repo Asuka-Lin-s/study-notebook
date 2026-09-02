@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""为学习笔记加入 HTML/TXT 导入功能。"""
+"""为学习笔记加入 HTML/TXT 导入，并把导入/导出收进标题栏“⋯”菜单。"""
 import re
 import shutil
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QAction, QKeySequence, QTextDocument
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QPushButton
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QPushButton, QMenu
 
 from main_window import MainWindow
 from mixin_save import SaveCaptureMixin
@@ -110,7 +110,6 @@ def _import_note_file(self):
 
         editor = self.open_editors.get(note_id)
         if editor:
-            # 重新保存一次，生成预览并统一内部 HTML。
             self.save_note(note_id)
             editor.setFocus()
 
@@ -121,7 +120,6 @@ def _import_note_file(self):
             "已导入为新笔记：\n%s" % title,
         )
     except Exception as exc:
-        # 创建记录后如果中途失败，清理半成品。
         try:
             if "note_id" in locals():
                 self.open_editors.pop(note_id, None)
@@ -144,21 +142,44 @@ SaveCaptureMixin.import_note_file = _import_note_file
 _original_init = MainWindow.__init__
 
 
-def _init_with_import(self, *args, **kwargs):
+def _init_with_file_menu(self, *args, **kwargs):
     _original_init(self, *args, **kwargs)
 
-    import_btn = QPushButton("导入", self.titlebar)
-    import_btn.setToolTip("导入 HTML / TXT 笔记  Ctrl+Shift+I")
-    import_btn.clicked.connect(self.import_note_file)
-
     layout = self.titlebar.layout()
-    anchor = getattr(self.titlebar, "format_btn", None) or getattr(self.titlebar, "sidebar_btn", None)
-    if anchor is not None:
-        layout.insertWidget(max(0, layout.indexOf(anchor)), import_btn)
-    else:
-        layout.addWidget(import_btn)
-    self.titlebar.import_btn = import_btn
 
+    # 移除原来常驻标题栏的“导出”按钮。
+    export_btn = getattr(self.titlebar, "export_btn", None)
+    if export_btn is not None:
+        layout.removeWidget(export_btn)
+        export_btn.hide()
+        export_btn.deleteLater()
+        self.titlebar.export_btn = None
+
+    # 文件类低频操作统一放进“⋯”菜单，给标题和拖动区域腾空间。
+    more_btn = QPushButton("⋯", self.titlebar)
+    more_btn.setFixedWidth(36)
+    more_btn.setToolTip("更多")
+
+    menu = QMenu(more_btn)
+    import_menu_action = menu.addAction("导入…")
+    export_menu_action = menu.addAction("导出…")
+    import_menu_action.triggered.connect(self.import_note_file)
+    export_menu_action.triggered.connect(self.export_current_note)
+    more_btn.setMenu(menu)
+
+    # 放在置顶按钮之前。
+    pin_btn = getattr(self.titlebar, "pin_btn", None)
+    if pin_btn is not None:
+        layout.insertWidget(max(0, layout.indexOf(pin_btn)), more_btn)
+    else:
+        layout.addWidget(more_btn)
+
+    self.titlebar.more_btn = more_btn
+    self.titlebar.more_menu = menu
+    self.titlebar.import_menu_action = import_menu_action
+    self.titlebar.export_menu_action = export_menu_action
+
+    # 导入快捷键继续保留；导出 Ctrl+Shift+E 已由主窗口原有逻辑提供。
     import_action = QAction(self)
     import_action.setShortcut(QKeySequence("Ctrl+Shift+I"))
     import_action.triggered.connect(self.import_note_file)
@@ -166,4 +187,4 @@ def _init_with_import(self, *args, **kwargs):
     self.import_note_action = import_action
 
 
-MainWindow.__init__ = _init_with_import
+MainWindow.__init__ = _init_with_file_menu
