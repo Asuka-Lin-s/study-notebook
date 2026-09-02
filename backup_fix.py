@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """定时/关闭时自动备份。
 
-ZIP 结构：
+ZIP 中按实际内容生成：
     ESP32学习.html
     STM32学习.html
-    未分类.html
+    未分类.html      # 仅当根目录确实存在未分类笔记时生成
     备份信息.json
 
 每个最高级目录保存为一个可独立打开、可再次导入的软件分类 HTML。
@@ -201,7 +201,7 @@ def _backup_info(self, created_at, reason, category_files, uncategorized_count):
         "reason": reason,
         "backup_interval_minutes": int(getattr(self, "backup_interval_minutes", 30)),
         "category_files": category_files,
-        "uncategorized_file": "未分类.html",
+        "uncategorized_file": "未分类.html" if uncategorized_count > 0 else None,
         "uncategorized_note_count": int(uncategorized_count),
         "notes_index": index_snapshot,
     }
@@ -224,8 +224,16 @@ def _create_backup(self, reason="manual", notify=False):
         backup_path = _next_backup_path(directory)
         created_at = time.strftime("%Y-%m-%d %H:%M:%S")
         category_files = []
-        uncategorized = []
-        used_names = {"未分类.html".casefold(), "备份信息.json".casefold()}
+        root_entries = _root_entries(self)
+        uncategorized = [
+            entry_id for entry_id in root_entries
+            if self.notes_index.get(entry_id, {}).get("type", "note") != "folder"
+        ]
+
+        # 只有真的存在未分类笔记时，才预留“未分类.html”这个名字。
+        used_names = {"备份信息.json".casefold()}
+        if uncategorized:
+            used_names.add("未分类.html".casefold())
 
         with zipfile.ZipFile(
             backup_path,
@@ -233,23 +241,28 @@ def _create_backup(self, reason="manual", notify=False):
             compression=zipfile.ZIP_DEFLATED,
             compresslevel=6,
         ) as archive:
-            for entry_id in _root_entries(self):
+            for entry_id in root_entries:
                 info = self.notes_index.get(entry_id, {})
-                if info.get("type", "note") == "folder":
-                    filename = _unique_html_name(info.get("title", "未命名分类"), used_names)
-                    content, note_count = category_export._build_category_html(self, entry_id)
-                    archive.writestr(filename, content.encode("utf-8"))
-                    category_files.append({
-                        "title": info.get("title", "未命名分类"),
-                        "file": filename,
-                        "note_count": int(note_count),
-                    })
-                else:
-                    uncategorized.append(entry_id)
+                if info.get("type", "note") != "folder":
+                    continue
 
-            # 即使当前没有未分类笔记，也固定保留这个文件，ZIP 结构始终一致。
-            uncategorized_html = _build_uncategorized_html(self, uncategorized)
-            archive.writestr("未分类.html", uncategorized_html.encode("utf-8"))
+                filename = _unique_html_name(
+                    info.get("title", "未命名分类"), used_names
+                )
+                content, note_count = category_export._build_category_html(self, entry_id)
+                archive.writestr(filename, content.encode("utf-8"))
+                category_files.append({
+                    "title": info.get("title", "未命名分类"),
+                    "file": filename,
+                    "note_count": int(note_count),
+                })
+
+            # 根目录有散落笔记时才生成；没有就完全不创建这个 HTML。
+            if uncategorized:
+                uncategorized_html = _build_uncategorized_html(self, uncategorized)
+                archive.writestr(
+                    "未分类.html", uncategorized_html.encode("utf-8")
+                )
 
             info = _backup_info(
                 self,
@@ -295,8 +308,8 @@ class BackupSettingsDialog(QDialog):
 
         outer = QVBoxLayout(self)
         tip = QLabel(
-            "备份会生成一个 ZIP：每个最高级目录各保存为一个 HTML，"
-            "另外包含未分类.html 和备份信息.json。"
+            "备份会生成一个 ZIP：每个实际存在的最高级目录各保存为一个 HTML；"
+            "只有根目录存在未分类笔记时才生成未分类.html；备份信息.json 始终保留。"
         )
         tip.setWordWrap(True)
         outer.addWidget(tip)
