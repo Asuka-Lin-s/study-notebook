@@ -11,6 +11,7 @@ import fold_identity_fix  # noqa: F401  修改标题文字时保持折叠状态
 import category_export_fix  # noqa: F401  按目录最高级分类合并导出
 import import_fix  # noqa: F401  导入 HTML/TXT 笔记
 import paste_spacing_fix  # noqa: F401  粘贴时统一行距和段落间距
+import backup_fix  # noqa: F401  定时/关闭时按最高级目录生成 ZIP 备份
 
 
 class TreeDropWatcher(QObject):
