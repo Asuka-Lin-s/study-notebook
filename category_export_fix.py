@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
-"""按左侧目录的最高级分类合并导出。
-
-- 当前笔记/选中目录属于某个顶层文件夹：导出整个顶层分类。
-- 根目录下未归类的单篇笔记：仍按单篇导出。
-- HTML 保留富文本和图片；TXT 保留目录/章节结构。
-"""
+"""按左侧目录的最高级分类合并导出，并写入可还原目录树的隐藏数据。"""
 import re
+import json
 import html as html_lib
 import base64
 import mimetypes
@@ -19,6 +15,9 @@ from mixin_save import SaveCaptureMixin
 
 
 ENTRY_ID_ROLE = Qt.ItemDataRole.UserRole
+EXPORT_FORMAT = "study-notebook-category"
+EXPORT_VERSION = 1
+EXPORT_DATA_ID = "study-notebook-category-data"
 
 
 def _safe_filename(text):
@@ -40,7 +39,6 @@ def _top_level_entry(self, entry_id):
 
 
 def _export_anchor_entry(self):
-    """优先使用左侧当前选中项；否则使用当前打开笔记。"""
     try:
         item = self.note_list.currentItem()
         if item:
@@ -127,6 +125,39 @@ def _plain_text_from_html(raw_html):
     return doc.toPlainText().strip()
 
 
+def _export_tree_node(self, entry_id):
+    info = self.notes_index[entry_id]
+    kind = info.get("type", "note")
+    node = {
+        "type": kind,
+        "title": info.get("title", "未命名"),
+    }
+
+    if kind == "folder":
+        node["children"] = [
+            _export_tree_node(self, child_id)
+            for child_id in _children_for_export(self, entry_id)
+        ]
+        return node
+
+    # 元数据中的每篇笔记保留完整 HTML，并把本地图片内嵌，保证单文件可迁移。
+    node["html"] = _embed_images(_note_html(self, entry_id))
+    folded = info.get("folded_headings", [])
+    if isinstance(folded, list):
+        node["folded_headings"] = folded
+    return node
+
+
+def _encoded_export_payload(self, root_id):
+    payload = {
+        "format": EXPORT_FORMAT,
+        "version": EXPORT_VERSION,
+        "root": _export_tree_node(self, root_id),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return base64.b64encode(raw).decode("ascii")
+
+
 def _build_category_html(self, root_id):
     root = self.notes_index[root_id]
     root_title = root.get("title", "未命名")
@@ -146,7 +177,6 @@ h2, h3, h4, h5, h6 { margin-top: 1.4em; }
 .note-title { border-bottom: 1px solid #e6e6e6; padding-bottom: 5px; }
 p, li { white-space: pre-wrap; }
 img { max-width: 100%; height: auto; }
-hr.note-separator { border: 0; border-top: 1px solid #eee; margin: 30px 0; }
 </style></head><body>
 """)
     parts.append("<h1>%s</h1>" % html_lib.escape(root_title))
@@ -168,20 +198,25 @@ hr.note-separator { border: 0; border-top: 1px solid #eee; margin: 30px 0; }
                 walk(entry_id, depth + 1)
             else:
                 note_count += 1
-                note_heading = min(6, heading_level)
                 raw = _note_html(self, entry_id)
-                fragment = _body_fragment(raw)
-                fragment = _embed_images(fragment)
+                fragment = _embed_images(_body_fragment(raw))
                 parts.append("<section class='note-section'>")
                 parts.append(
                     "<h%d class='note-title'>%s</h%d>" % (
-                        note_heading, html_lib.escape(title), note_heading
+                        heading_level, html_lib.escape(title), heading_level
                     )
                 )
                 parts.append(fragment)
                 parts.append("</section>")
 
     walk(root_id, 1)
+
+    # 浏览器不会显示这一段；本软件导入时用它完整重建目录和每篇笔记。
+    parts.append(
+        "<script id='%s' type='application/x-study-notebook'>%s</script>" % (
+            EXPORT_DATA_ID, _encoded_export_payload(self, root_id)
+        )
+    )
     parts.append("</body></html>")
     return "\n".join(parts), note_count
 
@@ -221,13 +256,11 @@ def _export_current_note_by_category(self):
     if not anchor_id or anchor_id not in self.notes_index:
         return
 
-    # 先确保所有正在编辑的内容写入磁盘。
     self.save_all_open_notes()
 
     root_id = _top_level_entry(self, anchor_id)
     root_info = self.notes_index.get(root_id, {})
 
-    # 根目录下的普通笔记没有“最高级分类”，继续保持原来的单篇导出行为。
     if root_info.get("type", "note") != "folder":
         editor = self.open_editors.get(root_id)
         if editor is None:
@@ -271,7 +304,7 @@ def _export_current_note_by_category(self):
         QMessageBox.information(
             self,
             "导出成功",
-            "已按最高级目录“%s”合并导出 %d 篇笔记：\n%s" % (
+            "已按最高级目录“%s”合并导出 %d 篇笔记：\n%s\n\nHTML 再导入时可恢复完整目录层级。" % (
                 root_title, count, str(path)
             ),
         )
